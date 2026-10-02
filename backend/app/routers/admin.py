@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from ..database import get_db
 from ..models import Product, Order, User, Supplier, Coupon, InventoryLog
-from ..schemas import SupplierIn, CouponIn
+from ..schemas import SupplierIn, CouponIn, OrderStatusIn, ORDER_STATUSES
 from ..auth import admin_user
 
 router=APIRouter(prefix="/api/admin",tags=["Admin"])
@@ -35,3 +35,27 @@ def coupon(data:CouponIn,admin=Depends(admin_user),db:Session=Depends(get_db)):
 
 @router.get("/coupons")
 def coupons(admin=Depends(admin_user),db:Session=Depends(get_db)): return db.query(Coupon).all()
+
+
+def _order_dict(o):
+    return {"id":o.id,"customer":o.user.email if o.user else None,"total":o.total,"status":o.status,
+            "payment_status":o.payment_status,"tracking_number":o.tracking_number,
+            "shipping_address":o.shipping_address,"created_at":o.created_at.isoformat(),
+            "items":[{"product_id":i.product_id,"quantity":i.quantity,"unit_price":i.unit_price} for i in o.items]}
+
+@router.get("/orders")
+def all_orders(status:str|None=None,limit:int=50,admin=Depends(admin_user),db:Session=Depends(get_db)):
+    """All customers' orders (the normal /api/orders only returns the logged-in user's)."""
+    q=db.query(Order)
+    if status: q=q.filter(Order.status==status.upper())
+    return [_order_dict(o) for o in q.order_by(Order.id.desc()).limit(min(max(limit,1),200)).all()]
+
+@router.put("/orders/{order_id}/status")
+def update_order_status(order_id:int,data:OrderStatusIn,admin=Depends(admin_user),db:Session=Depends(get_db)):
+    status=data.status.upper()
+    if status not in ORDER_STATUSES: raise HTTPException(400,f"Status must be one of {ORDER_STATUSES}")
+    o=db.get(Order,order_id)
+    if not o: raise HTTPException(404,"Order not found")
+    o.status=status
+    if data.tracking_number is not None: o.tracking_number=data.tracking_number
+    db.commit(); db.refresh(o); return _order_dict(o)

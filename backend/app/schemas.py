@@ -69,3 +69,9 @@ class OrderOut(BaseModel):
     shipping_address: str
     created_at: datetime
     model_config = {"from_attributes": True}
+
+ORDER_STATUSES = ["PLACED", "PROCESSING", "SHIPPED", "OUT_FOR_DELIVERY", "DELIVERED", "CANCELLED"]
+
+class OrderStatusIn(BaseModel):
+    status: str
+    tracking_number: str | None = None
